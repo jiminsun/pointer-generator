@@ -6,7 +6,6 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
 from torch.optim import Adagrad
 
-from decode import *
 from models.loss import Loss
 
 """

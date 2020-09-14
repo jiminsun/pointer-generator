@@ -1,13 +1,13 @@
 import argparse
 import os
+import sys
 
 import pytorch_lightning as pl
-import sys
 from pytorch_lightning import loggers as pl_loggers
 
-from data_loader.data import Vocab
-from data_loader.data import build_dataloader
-from data_loader.data import build_dataset
+from data.data import Vocab
+from data.data import build_dataloader
+from data.data import build_dataset
 from models.model import SummarizationModel
 from utils import *
 
