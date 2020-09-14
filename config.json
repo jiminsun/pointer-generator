@@ -1,0 +1,77 @@
+{
+  "name": "PGN",
+  "n_gpu": 1,
+
+  "data": {
+    "vocab_size": 50000,
+    "vocab_min_freq": 1,
+    "src_max_train": 400,
+    "src_max_test": 400,
+    "tgt_max_train": 100,
+    "tgt_max_test": 100
+  },
+
+  "data_loader": {
+    "data_dir": "data/",
+    "batch_size": {
+      "train": 64,
+      "val": 64,
+      "test": 1
+    },
+    "shuffle": true,
+    "num_workers": 8
+  },
+
+  "model": {
+    "type": "PointerGenerator",
+    "args": {
+      "embed_dim": 128,
+      "hidden_dim": 256
+    }
+  },
+
+  "optimizer": {
+    "type": "Adagrad",
+    "args":{
+      "lr": 0.15,
+      "lr_init_accum": 0.1
+    }
+  },
+
+  "loss": {
+    "args": {
+      "use_coverage": true,
+      "cov_weight": 1.0,
+      "pad_id": 0
+    }
+  },
+
+  "metrics": [
+    "rouge_1", "rouge_l"
+  ],
+
+  "trainer": {
+    "epochs": 10,
+    "max_iter": 600000,
+    "max_grad_norm": 2.0,
+    "save_dir": "saved/",
+    "save_freq": 1,
+    "verbose": true,
+    "tensorboard": true
+  },
+
+  "decode": {
+    "args": {
+      "beam_size": 4,
+      "min_dec_steps": 20,
+      "num_return_seq": 3
+    }
+  },
+
+  "path": {
+    "vocab": "vocab.json",
+    "train": "../sample_data/val.csv",
+    "val": "../sample_data/val.csv",
+    "test": "sample_data/test_10.csv"
+  }
+}
