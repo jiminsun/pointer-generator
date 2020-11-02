@@ -24,6 +24,7 @@ class Loss(nn.Module):
         Returns:
             loss: nll loss value; averaged over batch & timestep
         """
+        output = torch.log(output)
         loss = F.nll_loss(output, target,
                           ignore_index=self.pad_id,
                           reduction='mean')
@@ -67,17 +68,14 @@ class Loss(nn.Module):
         """
         final_dist = output['final_dist']
         dec_target = batch.dec_target
-        loss = self.nll_loss(output=final_dist, target=dec_target)
+        nll_loss = self.nll_loss(output=final_dist, target=dec_target)
 
-        if self.use_coverage:
-            attn_dist = output['attn_dist']
-            coverage = output['coverage']
-            dec_pad_mask = batch.dec_pad_mask
-            dec_len = batch.dec_len
-            cov = self.cov_loss(attn_dist, coverage, dec_pad_mask, dec_len)
-            loss += self.cov_weight * cov
-
-        return loss
+        attn_dist = output['attn_dist']
+        coverage = output['coverage']
+        dec_pad_mask = batch.dec_pad_mask
+        dec_len = batch.dec_len
+        cov_loss = self.cov_loss(attn_dist, coverage, dec_pad_mask, dec_len)
+        return nll_loss, cov_loss
 
 
 def build_criterion(config):
