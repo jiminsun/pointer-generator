@@ -1,4 +1,4 @@
-#Pointer-Generator Network
+# Pointer-Generator Network
 
 This repository contains the Pytorch implementation of the Pointer-Generator Network for text summarization, presented in [Get To The Point: Summarization with Pointer-Generator Networks (See et al., 2017)](https://arxiv.org/abs/1704.04368).
 
