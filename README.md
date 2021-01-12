@@ -34,7 +34,7 @@ The guide to install Mecab can be found in this link: https://konlpy.org/en/late
 ## How to run
 ### Prepare data
 
-Download the dataset at [this link](https://drive.google.com/drive/folders/19wykSMcZdfalsQi-NqfwoSgf2L83VRqC?usp=sharing), which is a human-annotated abstractive summarization dataset published by the [National Institute of Korean Language](https://corpus.korean.go.kr/). The dataset is arbitrarily split into train, dev, and test.
+Download the dataset at [this link](https://drive.google.com/drive/folders/1mHxqjg4jAVVwkGhRWRbdaUPELlj3kQSM?usp=sharing), which is a human-annotated abstractive summarization dataset published by the [National Institute of Korean Language](https://corpus.korean.go.kr/). The dataset is arbitrarily split into train, dev, and test.
 
 ```
 data
