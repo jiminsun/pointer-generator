@@ -1,4 +1,10 @@
+import os
+import pickle
 import torch
+import random
+import json
+import pandas as pd
+from tqdm import tqdm
 
 
 def load_dataset(data_dir):
@@ -16,6 +22,30 @@ def load_dataset(data_dir):
     return src, tgt
 
 
+def split_pkl(data_path):
+    data_dir = os.path.dirname(data_path)
+    with open(data_path, 'rb') as f:
+        data = pickle.load(f)
+    news_keys = list(data.keys())
+    random.shuffle(news_keys)
+
+    train_keys = news_keys[150:]
+    dev_keys = news_keys[:100]
+    test_keys = news_keys[100:150]
+
+    train_dict = {k: data[k] for k in train_keys}
+    dev_dict = {k: data[k] for k in dev_keys}
+    test_dict = {k: data[k] for k in test_keys}
+
+    data_paths = [os.path.join(data_dir, f'nikl_{d}.pkl') for d in ['train', 'dev', 'test']]
+    data_dicts = [train_dict, dev_dict, test_dict]
+
+    for p, d in zip(*(data_paths, data_dicts)):
+        with open(p, 'wb') as f:
+            pickle.dump(d, f)
+            print(f'File saved as {p}')
+
+
 def load_json(data_dir):
     import json
     with open(data_dir, 'r', encoding='utf-8') as f:
@@ -28,10 +58,31 @@ def load_json(data_dir):
 def load_csv(data_dir):
     sep = '\t' if data_dir.endswith('.tsv') else ','
     import pandas as pd
-    df = pd.read_csv(data_dir, sep=sep,
-                     header=0, encoding='utf-8')
-    src = list(df['content'].values)
-    tgt = list(df['bot_summary'].values)
+    try:
+        df = pd.read_csv(data_dir, sep=sep,
+                         header=0, encoding='utf-8')
+    except:
+        try:
+            sep = '\t'
+            df = pd.read_csv(data_dir, sep=sep,
+                             header=0, encoding='utf-8')
+        except UnicodeDecodeError:
+            df = pd.read_csv(data_dir, sep=',',
+                             header=0, encoding='ISO-8859-1')
+    print(df.head())
+    if 'abstractive' in df.columns:
+        src = list(df['contents'].values)
+        tgt = list(df['abstractive'].values)
+
+    elif 'bot_summary' in df.columns:
+        df['content'] = df['content'].astype(str)
+        df['bot_summary'] = df['bot_summary'].astype(str)
+
+        src = list(df['content'].values)
+        tgt = list(df['bot_summary'].values)
+
+    else:
+        raise IndexError
     return src, tgt
 
 
