@@ -24,8 +24,10 @@
 
   "model": {
     "type": "PointerGenerator",
+    "use_pretrained": true,
+    "pretrained": "fasttext",
     "args": {
-      "embed_dim": 128,
+      "embed_dim": 300,
       "hidden_dim": 256
     }
   },
@@ -46,32 +48,26 @@
     }
   },
 
-  "metrics": [
-    "rouge_1", "rouge_l"
-  ],
-
   "trainer": {
     "epochs": 10,
     "max_iter": 600000,
     "max_grad_norm": 2.0,
-    "save_dir": "saved/",
-    "save_freq": 1,
-    "verbose": true,
-    "tensorboard": true
+    "save_freq": 5,
+    "verbose": true
   },
 
   "decode": {
     "args": {
-      "beam_size": 4,
-      "min_dec_steps": 20,
-      "num_return_seq": 3
+      "beam_size": 2,
+      "min_dec_steps": 100,
+      "num_return_seq": 1
     }
   },
 
   "path": {
     "vocab": "vocab.json",
-    "train": "../sample_data/val.csv",
-    "val": "../sample_data/val.csv",
-    "test": "sample_data/test_10.csv"
+    "train": "../data/nikl/nikl_train.pkl",
+    "val": "../data/nikl/nikl_dev.pkl",
+    "test": "../data/nikl/nikl_test.pkl"
   }
 }
