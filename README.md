@@ -60,7 +60,6 @@ optional arguments:
   -h, --help            show this help message and exit
   -cp CONFIG_PATH, --config-path CONFIG_PATH
                         path to config file
-  --mds {combi}         multi-news labeling method to employ. if None, nikl dataset is used.
   -m MODEL_PATH, --model-path MODEL_PATH
                         path to load model in case of resuming training from an existing checkpoint
   --load-vocab          whether to load pre-built vocab file
