@@ -10,6 +10,8 @@ from decode import Hypothesis
 from decode import postprocess
 from models.loss import Loss
 
+from rouge import Rouge
+
 """
 : Models
 :   1) Encoder
@@ -202,12 +204,21 @@ class PointerGenerator(nn.Module):
     def __init__(self, config, vocab):
         super().__init__()
         self.config = config
+        self.use_pretrained = config.model.use_pretrained
         self.vocab = vocab
 
-        embed_dim = config.model.args.embed_dim
+        if self.use_pretrained:
+            emb_vecs = self.load_embeddings(config.model.pretrained)
+            self.embedding = nn.Embedding.from_pretrained(emb_vecs,
+                                                          freeze=False,
+                                                          padding_idx=self.vocab.pad())
+            embed_dim = self.embedding.embedding_dim
+        else:
+            embed_dim = config.model.args.embed_dim
+            self.embedding = nn.Embedding(len(vocab), embed_dim,
+                                          padding_idx=self.vocab.pad())
+                                          
         hidden_dim = config.model.args.hidden_dim
-        self.embedding = nn.Embedding(len(vocab), embed_dim,
-                                      padding_idx=self.vocab.pad())
         self.encoder = Encoder(input_dim=embed_dim,
                                hidden_dim=hidden_dim)
         self.decoder = AttnDecoder(input_dim=embed_dim,
@@ -224,6 +235,30 @@ class PointerGenerator(nn.Module):
         self.beam_size = config.decode.args.beam_size
         self.min_dec_steps = config.decode.args.min_dec_steps
         self.num_return_seq = config.decode.args.num_return_seq
+
+    def load_embeddings(self, which='fasttext'):
+        num_oov = 0
+        num_in_vocab = 0
+        emb_vecs = []
+        emb_size = 300
+        import fasttext.util
+        fasttext.util.download_model('ko', if_exists='ignore')
+        ft = fasttext.load_model('cc.ko.300.bin')
+        for w in self.vocab._id_to_word:
+            if ft.get_word_id(w) == -1:  # out of ft vocab
+                w_emb = torch.rand([emb_size, 1])
+                nn.init.kaiming_normal_(w_emb, mode='fan_out')
+                num_oov += 1
+            else:
+                w_emb = torch.tensor(ft.get_word_vector(w))
+                num_in_vocab += 1
+            emb_vecs.append(w_emb)
+        emb_vecs = list(map(lambda x: x.squeeze(), emb_vecs))
+        emb_vecs = torch.stack(emb_vecs)
+
+        num_total = num_oov + num_in_vocab
+        print(f"Loaded embeddings from {which}: {num_in_vocab} out of {num_total} are initialized from {which}")
+        return emb_vecs
 
     def forward(self, enc_input, enc_input_ext, enc_pad_mask, enc_len,
                 dec_input, max_oov_len):
@@ -280,7 +315,7 @@ class PointerGenerator(nn.Module):
 
             # Eq. (9) - Compute prob dist'n over extended vocabulary
             vocab_dist = p_gen * vocab_dist                         # [B x V]
-            attn_dist = (1.0 - p_gen) * attn_dist                   # [B x L]
+            weighted_attn_dist = (1.0 - p_gen) * attn_dist          # [B x L]
 
             # Concat some zeros to each vocab dist,
             # to hold probs for oov words that appeared in source text
@@ -291,15 +326,15 @@ class PointerGenerator(nn.Module):
 
             final_dist = extended_vocab_dist.scatter_add(dim=-1,
                                                          index=enc_input_ext,
-                                                         src=attn_dist)
+                                                         src=weighted_attn_dist)
             # Save outputs for loss computation
             final_dists.append(final_dist)
             attn_dists.append(attn_dist)
             coverages.append(cov)
 
         final_dists = torch.stack(final_dists, dim=-1)  # [B x V_x x T]
-        attn_dists = torch.stack(attn_dists, dim=-1)  # [B x L x T]
-        coverages = torch.stack(coverages, dim=-1)  # [B x L x T]
+        attn_dists = torch.stack(attn_dists, dim=-1)    # [B x L x T]
+        coverages = torch.stack(coverages, dim=-1)      # [B x L x T]
 
         return {
             'final_dist': final_dists,
@@ -345,15 +380,15 @@ class PointerGenerator(nn.Module):
         for steps in range(self.config.data.tgt_max_test):
             # Prepare decoder inputs (= previously generated tokens) for this step
             # K : number of hypotheses (we want top-K outputs)
-            dec_input = [h.latest_token for h in hyps]
+            dec_input = [self.filter_unk(hyp.latest_token) for hyp in hyps]
             dec_input = torch.tensor(dec_input,
                                      dtype=torch.long,
-                                     device=self.device)                    # [K]
-            dec_emb = self.embedding(dec_input)                             # [K x E]
-            h = torch.cat([h.hidden_state for h in hyps], dim=0)            # [1 x H] -> [K x H]
-            c = torch.cat([h.cell_state for h in hyps], dim=0)              # [1 x H] -> [K x H]
-            coverages = torch.cat([h.coverage for h in hyps], dim=0)        # [1 x L] -> [K x L]
-            enc_hiddens = torch.cat([enc_hidden for _ in hyps], dim=0)      # [1 x L x 2H] -> [K x L x 2H]
+                                     device=enc_input.device)                   # [K]
+            dec_emb = self.embedding(dec_input)                                 # [K x E]
+            h = torch.cat([hyp.hidden_state for hyp in hyps], dim=0)            # [1 x H] -> [K x H]
+            c = torch.cat([hyp.cell_state for hyp in hyps], dim=0)              # [1 x H] -> [K x H]
+            coverages = torch.cat([hyp.coverage for hyp in hyps], dim=0)        # [1 x L] -> [K x L]
+            enc_hiddens = torch.cat([enc_hidden for _ in hyps], dim=0)          # [1 x L x 2H] -> [K x L x 2H]
             enc_pad_masks = torch.cat([enc_pad_mask for _ in hyps], dim=0)
 
             vocab_dist, attn_dist, context_vec, h, c = self.decoder(dec_input=dec_emb,
@@ -375,7 +410,7 @@ class PointerGenerator(nn.Module):
 
             # Eq. (9) - Compute prob dist'n over extended vocabulary
             vocab_dist = p_gen * vocab_dist                         # [K x V]
-            attn_dist = (1.0 - p_gen) * attn_dist                   # [K x L]
+            weighted_attn_dist = (1.0 - p_gen) * attn_dist          # [K x L]
 
             # Concat some zeros to each vocab dist,
             # to hold probs for oov words that appeared in source text
@@ -385,7 +420,7 @@ class PointerGenerator(nn.Module):
             extended_vocab_dist = torch.cat([vocab_dist, extra_zeros], dim=-1)  # [K x V_x]
             final_dist = extended_vocab_dist.scatter_add(dim=-1,
                                                          index=enc_input_ext,
-                                                         src=attn_dist)
+                                                         src=weighted_attn_dist)
 
             # Find top-2k most probable token ids and update hypotheses
             log_probs = torch.log(final_dist)
@@ -403,12 +438,15 @@ class PointerGenerator(nn.Module):
 
                 for j in range(self.beam_size * 2):
                     # Update existing hypothesis with predicted token
-                    new_hyp = h_i.extend(token=topk_ids[i, j].item(),
-                                         log_prob=log_probs[i, j].item(),
-                                         hidden_state=hidden_state_i,
-                                         cell_state=cell_state_i,
-                                         coverage=coverage_i)
-                    all_hyps.append(new_hyp)
+                    if topk_ids[i, j].item() == self.vocab.unk():
+                        pass
+                    else:
+                        new_hyp = h_i.extend(token=topk_ids[i, j].item(),
+                                             log_prob=log_probs[i, j].item(),
+                                             hidden_state=hidden_state_i,
+                                             cell_state=cell_state_i,
+                                             coverage=coverage_i)
+                        all_hyps.append(new_hyp)
 
             # Find k most probable hypotheses among 2k candidates
             hyps = []
@@ -422,6 +460,9 @@ class PointerGenerator(nn.Module):
                 if len(hyps) == self.beam_size or len(results) == self.beam_size:
                     break
 
+            if len(results) == self.beam_size:
+                break
+
         # Reached max decode steps but not enough results
         if len(results) < self.num_return_seq:
             results = results + hyps[:self.num_return_seq - len(results)]
@@ -430,10 +471,14 @@ class PointerGenerator(nn.Module):
         best_hyps = sorted_results[:self.num_return_seq]
 
         # Map token ids to words
-        hyp_words = [self.vocab.outputids2words(h.tokens, src_oovs) for h in best_hyps]
+        hyp_words = [self.vocab.outputids2words(hyp.tokens, src_oovs[0]) for hyp in best_hyps]
 
         # Concatenate words to strings
-        hyp_results = [postprocess(words,
+        if self.config.model.use_pretrained and self.config.model.pretrained == 'kobert':
+            bpe = True
+        else:
+            bpe = False
+        hyp_results = [postprocess(words, bpe=bpe,
                                    skip_special_tokens=True,
                                    clean_up_tokenization_spaces=True)
                        for words in hyp_words]
@@ -444,15 +489,20 @@ class PointerGenerator(nn.Module):
         """Sort hypotheses according to their log probability."""
         return sorted(hyps, key=lambda h: h.avg_log_prob, reverse=True)
 
+    def filter_unk(self, idx):
+        return idx if idx < self.vocab.size() else self.vocab.unk()
+
 
 class SummarizationModel(pl.LightningModule):
     def __init__(self, config, vocab):
         super().__init__()
         self.config = config
         self.vocab = vocab
-        if config.model.type == 'PointerGenerator':
-            self.model = PointerGenerator(config, vocab)
+        self.model = PointerGenerator(config, vocab)
         self.criterion = Loss(args=config.loss.args)
+        self.num_step = 0
+        self.cov_weight = config.loss.args.cov_weight
+        self.rouge = Rouge()
 
     def training_step(self, batch, batch_idx):
         output = self.model.forward(enc_input=batch.enc_input,
@@ -461,11 +511,17 @@ class SummarizationModel(pl.LightningModule):
                                     enc_len=batch.enc_len,
                                     dec_input=batch.dec_input,
                                     max_oov_len=batch.max_oov_len)
-        loss = self.criterion(output=output,
-                              batch=batch)
-        result = pl.TrainResult(loss)
-        result.log('train_loss', loss)
-        return result
+
+        nll_loss, cov_loss = self.criterion(output=output,
+                                            batch=batch)
+        loss = nll_loss + self.cov_weight * cov_loss
+        # self.log('train_loss', loss, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.logger.log_metrics({'train_loss': loss,
+                                 'train/nll_loss': nll_loss}, self.num_step)
+        if self.cov_weight > 0:
+            self.logger.log_metrics({'train/cov_loss': cov_loss}, self.num_step)
+        self.num_step += 1
+        return loss
 
     def validation_step(self, batch, batch_idx):
         output = self.model.forward(enc_input=batch.enc_input,
@@ -474,20 +530,55 @@ class SummarizationModel(pl.LightningModule):
                                     enc_len=batch.enc_len,
                                     dec_input=batch.dec_input,
                                     max_oov_len=batch.max_oov_len)
-        loss = self.criterion(output=output,
-                              batch=batch)
-        result = pl.EvalResult(checkpoint_on=loss)
-        result.log('val_loss', loss)
-        return result
+        nll_loss, cov_loss = self.criterion(output=output,
+                                            batch=batch)
+        loss = nll_loss + self.cov_weight * cov_loss
+        self.log('val_loss', loss, on_step=True, on_epoch=False, prog_bar=False, logger=True)
+        self.logger.log_metrics({'val_loss': loss}, self.num_step)
+
+        result = self.test_step(batch, batch_idx)
+        scores = self.rouge.get_scores(result['generated_summary'],
+                                       result['gold_summary'], avg=True)
+        rouge_1 = scores['rouge-1']['f'] * 100.0
+        rouge_2 = scores['rouge-2']['f'] * 100.0
+        rouge_l = scores['rouge-l']['f'] * 100.0
+        pred = {
+            'rouge_1': rouge_1,
+            'rouge_2': rouge_2,
+            'rouge_l': rouge_l,
+            'val_loss': loss
+        }
+        return pred
+
+    def validation_epoch_end(self, validation_step_outputs):
+        rouge_1, rouge_2, rouge_l, val_loss = [], [], [], []
+        for pred in validation_step_outputs:
+            rouge_1.append(pred['rouge_1'])
+            rouge_2.append(pred['rouge_2'])
+            rouge_l.append(pred['rouge_l'])
+            val_loss.append(pred['val_loss'])
+        rouge_1_avg = sum(rouge_1) / len(rouge_1)
+        rouge_2_avg = sum(rouge_2) / len(rouge_2)
+        rouge_l_avg = sum(rouge_l) / len(rouge_l)
+        val_loss_avg = sum(val_loss) / len(val_loss)
+        results = {
+            'rouge_1_avg': rouge_1_avg,
+            'rouge_2_avg': rouge_2_avg,
+            'rouge_l_avg': rouge_l_avg,
+            'val_loss_avg': val_loss_avg,
+        }
+        return results
 
     def test_step(self, batch, batch_idx):
-        predicted_summary = self.model.inference(enc_input=batch.enc_input,
-                                                 enc_input_ext=batch.enc_input_ext,
-                                                 enc_pad_mask=batch.enc_pad_mask,
-                                                 enc_len=batch.enc_len,
-                                                 src_oovs=batch.src_oovs,
-                                                 max_oov_len=batch.max_oov_len)
-        return predicted_summary
+        result = self.model.inference(enc_input=batch.enc_input,
+                                      enc_input_ext=batch.enc_input_ext,
+                                      enc_pad_mask=batch.enc_pad_mask,
+                                      enc_len=batch.enc_len,
+                                      src_oovs=batch.src_oovs,
+                                      max_oov_len=batch.max_oov_len)
+        result['source'] = [''.join(w) for w in batch.src_text]
+        result['gold_summary'] = [''.join(w) for w in batch.tgt_text]
+        return result
 
     def configure_optimizers(self):
         args = self.config.optimizer.args

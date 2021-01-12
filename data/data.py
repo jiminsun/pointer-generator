@@ -2,8 +2,6 @@ from collections import Counter
 
 import gluonnlp as nlp
 import torch
-from kobert.pytorch_kobert import get_pytorch_kobert_model
-from kobert.utils import get_tokenizer
 from konlpy.tag import Mecab
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
@@ -52,16 +50,9 @@ class TextDataset(Dataset):
         return txt
 
     def load_tokenizer(self, which):
-        """Loads tokenizer from KoBERT (wordpiece) or mecab"""
-        if which == 'kobert':
-            _, vocab = get_pytorch_kobert_model()
-            tok = get_tokenizer()
-            tokenizer = nlp.data.BERTSPTokenizer(tok, vocab, lower=False)
-        elif which == 'mecab':
-            m = Mecab()
-            tokenizer = m.morphs
-        else:
-            raise ValueError('tokenizer should either be kobert or mecab')
+        """Loads mecab tokenizer"""
+        m = Mecab()
+        tokenizer = m.morphs
         return tokenizer
 
     def preprocess(self, text):
