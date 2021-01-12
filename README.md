@@ -16,14 +16,33 @@ Note that the overall pipeline relies on `pytorch-lightning`.
 
 ## Requirements
 
+### Packages
+```
+torch==1.5.1
+pytorch-lightning==1.0.3
+fasttext==0.9.2
+```
+
 ```
 pip install -r requirements.txt
 ```
 
+### Mecab tokenizer
+The model requires an additional installation of the the Mecab tokenizer provided by konlpy package. 
+The guide to install Mecab can be found in this link: https://konlpy.org/en/latest/install/.
+
 ## How to run
 ### Prepare data
 
-TBU
+Download the dataset at [this link](https://drive.google.com/drive/folders/19wykSMcZdfalsQi-NqfwoSgf2L83VRqC?usp=sharing), which is a human-annotated abstractive summarization dataset published by the [National Institute of Korean Language](https://corpus.korean.go.kr/). The dataset is arbitrarily split into train, dev, and test.
+
+```
+data
+├── nikl_train.pkl
+├── nikl_dev.pkl
+└── nikl_test.pkl
+```
+
 
 ### Run training
 First, set up the desired model configurations in `config.json`.
