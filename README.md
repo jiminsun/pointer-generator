@@ -2,7 +2,7 @@
 
 This repository contains the Pytorch implementation of the Pointer-Generator Network for text summarization, presented in [Get To The Point: Summarization with Pointer-Generator Networks (See et al., 2017)](https://arxiv.org/abs/1704.04368).
 
-While the original paper trains the model on an English dataset, this project aims at building a *Korean* summarization model. 
+While the original paper trains the model on an English dataset, this project aims at building a __*Korean*__ summarization model. 
 Thus, we additionally incorporate Korean preprocessing & tokenization techniques to adapt the model to Korean.
 
 Most of the code is implemented from scratch, but we also referred to the following repositories. 
